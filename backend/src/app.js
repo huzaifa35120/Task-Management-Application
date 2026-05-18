@@ -6,12 +6,36 @@ const taskRoutes = require('./routes/tasks');
 const { TASK_STATUSES, TASK_PRIORITIES } = require('./models/Task');
 const { notFound, errorHandler } = require('./middleware/errorHandler');
 
+function buildOriginMatchers(raw) {
+  return (raw || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((pattern) => {
+      if (pattern === '*') return () => true;
+      if (!pattern.includes('*')) return (origin) => origin === pattern;
+      const escaped = pattern
+        .split('*')
+        .map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&'))
+        .join('.*');
+      const re = new RegExp(`^${escaped}$`);
+      return (origin) => re.test(origin);
+    });
+}
+
 function createApp() {
   const app = express();
 
+  const originMatchers = buildOriginMatchers(process.env.CLIENT_ORIGIN);
+
   app.use(
     cors({
-      origin: process.env.CLIENT_ORIGIN || true,
+      origin: (origin, cb) => {
+        if (!origin) return cb(null, true);
+        if (originMatchers.length === 0) return cb(null, true);
+        if (originMatchers.some((match) => match(origin))) return cb(null, true);
+        return cb(new Error(`Not allowed by CORS: ${origin}`));
+      },
       credentials: true,
     })
   );
